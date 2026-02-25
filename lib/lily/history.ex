@@ -76,7 +76,7 @@ defmodule Lily.History do
     initial_state = %{graph: base_graph, inputs: %{}, overrides: %{}, offsets: %{}}
 
     undo_stack
-    |> Rnum.reverse()
+    |> Enum.reverse()
     |> Enum.reduce(initial_state, &apply_operation/2)
   end
 
