@@ -14,7 +14,6 @@ defmodule Lily.Graph do
             inputs: [atom()],
             outputs: [atom()],
             opts: keyword(),
-            maybe_input_context: %{atom() => any()},
             extra: map()
           }
 
@@ -24,7 +23,6 @@ defmodule Lily.Graph do
       inputs: [],
       outputs: [],
       opts: [],
-      maybe_input_context: nil,
       extra: %{}
     ]
   end
