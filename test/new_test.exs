@@ -44,9 +44,7 @@ defmodule LilyCompilerTest do
   test "编译器：单集群编译与悬空参数识别" do
     graph = build_test_graph()
 
-    effective_state = %{graph: graph, overrides: %{}, offsets: %{}}
-
-    {:ok, recipes} = Compiler.compile(effective_state)
+    {:ok, recipes} = Compiler.compile(graph)
 
     assert length(recipes) == 1
     recipe = hd(recipes)
@@ -59,7 +57,6 @@ defmodule LilyCompilerTest do
 
   test "编译器：硬核分簇切割与跨边缝合 (Cut & Bridge)" do
     graph = build_test_graph()
-    effective_state = %{graph: graph, overrides: %{}, offsets: %{}}
 
     cluster_declara = %Cluster{
       node_colors: %{
@@ -71,7 +68,7 @@ defmodule LilyCompilerTest do
       }
     }
 
-    {:ok, recipes} = Compiler.compile(effective_state, cluster_declara)
+    {:ok, recipes} = Compiler.compile(graph, cluster_declara)
 
     assert length(recipes) == 2
 
@@ -87,5 +84,49 @@ defmodule LilyCompilerTest do
     assert :dec_res in gpu_recipe.requires
 
     assert :mul_b in gpu_recipe.requires
+  end
+
+  test "编译器：两阶段编译 - 拓扑切割与数据缝合" do
+    graph = build_test_graph()
+    
+    # 模拟 History 得到的 init_data (包含 inputs, overrides 等)
+    init_data = %{
+      inputs: %{ {:port, :split, :val} => 42 },
+      overrides: %{ {:port, :inc, :res} => 100 },
+      offsets: %{}
+    }
+
+    cluster_declara = %Cluster{
+      node_colors: %{
+        split: :cpu_cluster,
+        inc:   :cpu_cluster,
+        dec:   :cpu_cluster,
+        add:   :gpu_cluster,
+        mul:   :gpu_cluster
+      }
+    }
+
+    # 第一阶段：纯拓扑编译
+    {:ok, static_recipes} = Compiler.compile(graph, cluster_declara)
+
+    assert length(static_recipes) == 2
+    
+    cpu_recipe = Enum.find(static_recipes, &(&1[:recipe].name == :cpu_cluster))
+    assert :split_val in cpu_recipe.requires
+    refute Map.has_key?(cpu_recipe, :overrides) # 确保没有包含侧载数据
+
+    # 第二阶段：数据绑定 (Downstream Enumerable Mapping)
+    final_bundles = Compiler.bind_interventions(static_recipes, init_data)
+    
+    # 验证数据是否被正确分发到对应的 bundle
+    cpu_bundle = Enum.find(final_bundles, &(&1[:recipe].name == :cpu_cluster))
+    gpu_bundle = Enum.find(final_bundles, &(&1[:recipe].name == :gpu_cluster))
+
+    # CPU 集群包含了 :split 的 input 和 :inc 的 override
+    assert cpu_bundle.inputs[{:port, :split, :val}] == 42
+    assert cpu_bundle.overrides[{:port, :inc, :res}] == 100
+    
+    # GPU 集群没有任何干预数据
+    assert map_size(gpu_bundle.overrides) == 0
   end
 end
