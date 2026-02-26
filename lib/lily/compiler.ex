@@ -8,7 +8,12 @@ defmodule Lily.Compiler do
 
   @type port_key_name :: {:port, node_id :: Node.id(), port_name :: atom()}
 
-  @type recipe_manifest :: %{recipe: Orchid.Recipe.t(), requires: [port_key_name()], exports: [port_key_name()]}
+  @type recipe_manifest :: %{
+    recipe: Orchid.Recipe.t(),
+    requires: [port_key_name()],
+    exports: [port_key_name()],
+    node_ids: [Lily.Graph.Node.id()]
+  }
 
   @spec compile(Lily.Graph.t()) :: {:error, :cycle_detected} | {:ok, [recipe_manifest()]}
   def compile(%Graph{} = graph, cluster_declara \\ %Cluster{}) do
@@ -32,14 +37,14 @@ defmodule Lily.Compiler do
 
   @spec bind_interventions([recipe_manifest()], History.inputs_bundle()) :: list()
   def bind_interventions(static_recipes, %{inputs: inputs, overrides: overrides, offsets: offsets}) do
-    Enum.map(static_recipes, fn %{recipe: recipe} = static_bundle ->
+    Enum.map(static_recipes, fn %{recipe: _recipe, node_ids: node_ids} = static_bundle ->
       # Extract node ids involved in this specific recipe cluster
-      node_ids_in_cluster = extract_recipe_nodes(recipe)
+      # node_ids_in_cluster = extract_recipe_nodes(recipe)
 
       # Filter data relevant to this cluster
-      local_inputs = filter_port_data(inputs, node_ids_in_cluster)
-      local_overrides = filter_port_data(overrides, node_ids_in_cluster)
-      local_offsets = filter_port_data(offsets, node_ids_in_cluster)
+      local_inputs = filter_port_data(inputs, node_ids)
+      local_overrides = filter_port_data(overrides, node_ids)
+      local_offsets = filter_port_data(offsets, node_ids)
 
       static_bundle
       |> Map.put(:overrides, local_overrides)
@@ -60,7 +65,8 @@ defmodule Lily.Compiler do
     %{
       recipe: Orchid.Recipe.new(steps, name: cluster_name),
       requires: requires,
-      exports: exports
+      exports: exports,
+      node_ids: node_ids
     }
   end
 
@@ -115,16 +121,16 @@ defmodule Lily.Compiler do
     |> Enum.into(%{})
   end
 
-  defp extract_recipe_nodes(%Orchid.Recipe{steps: steps}) do
-    # Assuming step format is {Impl, Inputs, Outputs, Opts} and outputs start with "nodeid_port"
-    # An alternative is storing node_ids in the recipe metadata.
-    # We will simulate node extraction based on output keys:
-    Enum.flat_map(steps, fn {_impl, _in, outs, _opts} ->
-      Enum.map(outs, fn out_key ->
-        out_key |> Atom.to_string() |> String.split("_") |> hd() |> String.to_atom()
-      end)
-    end) |> Enum.uniq()
-  end
+  # defp extract_recipe_nodes(%Orchid.Recipe{steps: steps}) do
+  #   # Assuming step format is {Impl, Inputs, Outputs, Opts} and outputs start with "nodeid_port"
+  #   # An alternative is storing node_ids in the recipe metadata.
+  #   # We will simulate node extraction based on output keys:
+  #   Enum.flat_map(steps, fn {_impl, _in, outs, _opts} ->
+  #     Enum.map(outs, fn out_key ->
+  #       out_key |> Atom.to_string() |> String.split("_") |> hd() |> String.to_atom()
+  #     end)
+  #   end) |> Enum.uniq()
+  # end
 
   def build_orchid_step(impl, inputs, outputs, opts) do
     {impl, inputs, outputs, opts}
