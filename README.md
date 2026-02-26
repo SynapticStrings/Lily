@@ -23,8 +23,8 @@ alias Lily.{Graph, Graph.Node, Graph.Edge, Graph.Cluster, History, Compiler}
 
 # 1. Build the static topology
 graph = Graph.new()
-|> Graph.add_node(%Node{id: :acoustic, inputs: [:lyrics], outputs: [:mel]})
-|> Graph.add_node(%Node{id: :vocoder,  inputs: [:mel], outputs: [:audio]})
+|> Graph.add_node(%Node{id: :acoustic, impl: AcosticModel, inputs: [:lyrics], outputs: [:mel]})
+|> Graph.add_node(%Node{id: :vocoder, impl: LegacyWaveNetVocoder,  inputs: [:mel], outputs: [:audio]})
 |> Graph.add_edge(Edge.new(:acoustic, :mel, :vocoder, :mel))
 
 # 2. Record user interventions (e.g., overriding AI tensors via UI)
@@ -32,13 +32,14 @@ history = History.new()
 |> History.push({:override, {:port, :vocoder, :mel}, <<0, 1, "tensor_data">>})
 
 # 3. Fold history into the current effective state
-state = History.resolve(graph, history)
+{graph, interventions} = History.resolve(graph, history)
 
 # 4. Compile & Partition (Split execution to prevent VRAM overflow)
 clusters = %Cluster{node_colors: %{acoustic: :gpu_1, vocoder: :gpu_2}}
-{:ok, [recipe_1, recipe_2]} = Compiler.compile(state, clusters)
+{:ok, recipes} = Compiler.compile(graph, clusters)
+[bundle_1, bundle_2] = Compiler.bind_interventions(recipes, interventions)
 
 # Result: 
-# recipe_1 exports :"acoustic_mel"
-# recipe_2 requires :"acoustic_mel" and carries the user override in its baggage.
+# bundle_1 exports :"acoustic_mel"
+# bundle_2 requires :"acoustic_mel" and carries the user override in its `overrides`.
 ```
