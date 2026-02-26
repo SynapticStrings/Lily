@@ -2,10 +2,6 @@ defmodule Lily.History do
   defmodule Operation do
     alias Lily.Graph.{Node, Edge, Portkey}
 
-    @type edge_key ::
-            {:edge, from_node :: atom(), from_port :: atom(), to_node :: atom(),
-             to_port :: atom()}
-
     @type topology_mutation ::
             {:add_node, Node.t()}
             | {:update_node, Node.id(),
@@ -26,8 +22,16 @@ defmodule Lily.History do
     @type t :: topology_mutation() | data_interventions() | input_declar()
   end
 
-  alias Lily.Graph.Portkey
   alias Lily.Graph
+
+  @type inputs_bundle :: %{
+          :inputs => %{Lily.Graph.Portkey.t() => any()},
+          :overrides => %{Lily.Graph.Portkey.t() => any()},
+          :offsets => %{Lily.Graph.Portkey.t() => any()},
+          optional(any()) => any()
+        }
+
+  @type effective_state :: {Lily.Graph.t(), inputs_bundle()}
 
   @type t :: %__MODULE__{
           # 越新的操作越靠前 (Head)
@@ -41,31 +45,24 @@ defmodule Lily.History do
   @doc "初始化一个新的历史记录"
   def new, do: %__MODULE__{}
 
-  @spec push(Lily.History.t(), any()) :: Lily.History.t()
+  @spec push(t(), any()) :: t()
   def push(%__MODULE__{undo_stack: undo} = history, op) do
     %{history | undo_stack: [op | undo], redo_stack: []}
   end
 
-  @spec undo(Lily.History.t()) :: Lily.History.t()
+  @spec undo(t()) :: t()
   def undo(%__MODULE__{undo_stack: []} = history), do: history
 
   def undo(%__MODULE__{undo_stack: [last_op | rest_undo], redo_stack: redo} = history) do
     %{history | undo_stack: rest_undo, redo_stack: [last_op | redo]}
   end
 
-  @spec redo(Lily.History.t()) :: Lily.History.t()
+  @spec redo(t()) :: t()
   def redo(%__MODULE__{redo_stack: []} = history), do: history
 
   def redo(%__MODULE__{undo_stack: undo, redo_stack: [next_op | rest_redo]} = history) do
     %{history | undo_stack: [next_op | undo], redo_stack: rest_redo}
   end
-
-  @type effective_state :: %{
-          graph: Lily.Graph.t(),
-          inputs: %{Lily.Graph.Portkey.t() => any()},
-          overrides: %{Lily.Graph.Portkey.t() => any()},
-          offsets: %{Lily.Graph.Portkey.t() => any()}
-        }
 
   @doc """
   将所有的历史记录（过去）按时间顺序叠加到 base_graph 上。
@@ -78,6 +75,7 @@ defmodule Lily.History do
     undo_stack
     |> Enum.reverse()
     |> Enum.reduce(initial_state, &apply_operation/2)
+    |> Map.pop(:graph)
   end
 
   defp apply_operation({:add_node, node}, state) do
@@ -110,10 +108,10 @@ defmodule Lily.History do
 
   defp apply_operation({:remove_interventions, {:port, _, _} = port_key}, state) do
     %{
-    state
-    | overrides: Map.delete(state.overrides, port_key),
-      offsets: Map.delete(state.offsets, port_key)
-  }
+      state
+      | overrides: Map.delete(state.overrides, port_key),
+        offsets: Map.delete(state.offsets, port_key)
+    }
   end
 
   defp apply_operation({:set_input, port_key, data}, state) do

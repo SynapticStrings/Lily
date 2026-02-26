@@ -71,6 +71,10 @@ defmodule Lily.Graph do
 
   def new, do: %__MODULE__{}
 
+  # https://elixirforum.com/t/what-is-a-good-way-to-compare-structs/59303
+  @spec same?(t(), t()) :: boolean()
+  def same?(graph1, graph2), do: graph1 == graph2
+
   @spec add_node(t(), Node.t()) :: t()
   def add_node(%__MODULE__{nodes: old_nodes} = graph, %Node{id: node_id} = node) do
     %{graph | nodes: Map.put(old_nodes, node_id, node)}

@@ -3,15 +3,14 @@ defmodule Lily.Compiler do
   The final stage of the Lily pure functional pipeline.
   Translates the effective DAG into a sequence of Orchid.Recipe.
   """
-  alias Lily.Graph
+  alias Lily.{Graph, History}
   alias Lily.Graph.{Node, Portkey, Cluster}
 
   @type port_key_name :: {:port, node_id :: Node.id(), port_name :: atom()}
 
-  @doc """
-  Stage 1: Compile pure topologies into static Recipes.
-  Takes ONLY the graph structure and clustering strategy. Data is ignored here.
-  """
+  @type recipe_manifest :: %{recipe: Orchid.Recipe.t(), requires: [port_key_name()], exports: [port_key_name()]}
+
+  @spec compile(Lily.Graph.t()) :: {:error, :cycle_detected} | {:ok, [recipe_manifest()]}
   def compile(%Graph{} = graph, cluster_declara \\ %Cluster{}) do
     case Graph.topological_sort(graph) do
       {:error, _} = err ->
@@ -31,10 +30,7 @@ defmodule Lily.Compiler do
     end
   end
 
-  @doc """
-  Stage 2: Downstream mapping function.
-  Hydrates the compiled topology with `init_data` (inputs, overrides, offsets).
-  """
+  @spec bind_interventions([recipe_manifest()], History.inputs_bundle()) :: list()
   def bind_interventions(static_recipes, %{inputs: inputs, overrides: overrides, offsets: offsets}) do
     Enum.map(static_recipes, fn %{recipe: recipe} = static_bundle ->
       # Extract node ids involved in this specific recipe cluster
