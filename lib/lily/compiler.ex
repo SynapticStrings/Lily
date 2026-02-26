@@ -6,16 +6,24 @@ defmodule Lily.Compiler do
   alias Lily.{Graph, History}
   alias Lily.Graph.{Node, Portkey, Cluster}
 
-  @type port_key_name :: {:port, node_id :: Node.id(), port_name :: atom()}
-
   @type recipe_manifest :: %{
-    recipe: Orchid.Recipe.t(),
-    requires: [port_key_name()],
-    exports: [port_key_name()],
-    node_ids: [Lily.Graph.Node.id()]
-  }
+          recipe: Orchid.Recipe.t(),
+          requires: [Portkey.t()],
+          exports: [Portkey.t()],
+          node_ids: [Node.id()]
+        }
 
-  @spec compile(Lily.Graph.t()) :: {:error, :cycle_detected} | {:ok, [recipe_manifest()]}
+  @type recipe_with_bundle :: %{
+          recipe: Orchid.Recipe.t(),
+          requires: [Portkey.t()],
+          exports: [Portkey.t()],
+          node_ids: [Node.id()],
+          inputs: %{Portkey.t() => any()},
+          overrides: %{Portkey.t() => any()},
+          offsets: %{Portkey.t() => any()}
+        }
+
+  @spec compile(Graph.t()) :: {:error, :cycle_detected} | {:ok, [recipe_manifest()]}
   def compile(%Graph{} = graph, cluster_declara \\ %Cluster{}) do
     case Graph.topological_sort(graph) do
       {:error, _} = err ->
@@ -35,13 +43,9 @@ defmodule Lily.Compiler do
     end
   end
 
-  @spec bind_interventions([recipe_manifest()], History.inputs_bundle()) :: list()
+  @spec bind_interventions([recipe_manifest()], History.inputs_bundle()) :: [recipe_with_bundle()]
   def bind_interventions(static_recipes, %{inputs: inputs, overrides: overrides, offsets: offsets}) do
-    Enum.map(static_recipes, fn %{recipe: _recipe, node_ids: node_ids} = static_bundle ->
-      # Extract node ids involved in this specific recipe cluster
-      # node_ids_in_cluster = extract_recipe_nodes(recipe)
-
-      # Filter data relevant to this cluster
+    Enum.map(static_recipes, fn %{node_ids: node_ids} = static_bundle ->
       local_inputs = filter_port_data(inputs, node_ids)
       local_overrides = filter_port_data(overrides, node_ids)
       local_offsets = filter_port_data(offsets, node_ids)
@@ -61,7 +65,6 @@ defmodule Lily.Compiler do
 
     {requires, exports} = calculate_boundaries(node_ids, graph)
 
-    # Strictly returns ONLY topology data
     %{
       recipe: Orchid.Recipe.new(steps, name: cluster_name),
       requires: requires,
@@ -120,17 +123,6 @@ defmodule Lily.Compiler do
     |> Enum.filter(fn {{:port, target_node, _port}, _data} -> target_node in node_ids end)
     |> Enum.into(%{})
   end
-
-  # defp extract_recipe_nodes(%Orchid.Recipe{steps: steps}) do
-  #   # Assuming step format is {Impl, Inputs, Outputs, Opts} and outputs start with "nodeid_port"
-  #   # An alternative is storing node_ids in the recipe metadata.
-  #   # We will simulate node extraction based on output keys:
-  #   Enum.flat_map(steps, fn {_impl, _in, outs, _opts} ->
-  #     Enum.map(outs, fn out_key ->
-  #       out_key |> Atom.to_string() |> String.split("_") |> hd() |> String.to_atom()
-  #     end)
-  #   end) |> Enum.uniq()
-  # end
 
   def build_orchid_step(impl, inputs, outputs, opts) do
     {impl, inputs, outputs, opts}
